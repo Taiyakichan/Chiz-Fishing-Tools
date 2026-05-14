@@ -93,7 +93,17 @@ Install PyInstaller, then build from the repo root:
 
 ```bash
 pip install pyinstaller
-pyinstaller --noconfirm --onefile --windowed --uac-admin --name NTE-Auto-Fish --collect-data customtkinter --add-data "assets;assets" --add-data "config.default.json;." start_gui.py
+build_release.bat
 ```
 
-GitHub Actions can also build the Windows artifact from release tags like `v1.0.0` or from a manual workflow run.
+The built executable is written to `dist/Chiz-Fishing-Tools.exe`.
+
+## Publishing A Release
+
+This repo does not currently use GitHub Actions. To publish a release manually:
+
+1. Run `python -m unittest discover -v`.
+2. Run `build_release.bat`.
+3. Create a GitHub Release with a version tag such as `v1.0.0`.
+4. Upload `dist/Chiz-Fishing-Tools.exe`.
+5. Mention that users should keep `config.default.json` as the reset/default reference and that local settings are saved as `config.json`.
