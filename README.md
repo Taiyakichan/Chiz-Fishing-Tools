@@ -97,13 +97,3 @@ build_release.bat
 ```
 
 The built executable is written to `dist/Chiz-Fishing-Tools.exe`.
-
-## Publishing A Release
-
-This repo does not currently use GitHub Actions. To publish a release manually:
-
-1. Run `python -m unittest discover -v`.
-2. Run `build_release.bat`.
-3. Create a GitHub Release with a version tag such as `v1.0.0`.
-4. Upload `dist/Chiz-Fishing-Tools.exe`.
-5. Mention that users should keep `config.default.json` as the reset/default reference and that local settings are saved as `config.json`.
