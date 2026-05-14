@@ -51,7 +51,7 @@ class TestConfigManager(unittest.TestCase):
         self.assertEqual(config.hsv_blue_lower, (101, 201, 202))
         self.assertEqual(config.hsv_blue_upper, (130, 255, 255))
 
-    def test_default_config_loads_from_template_when_local_config_is_missing(self):
+    def test_default_config_loads_from_template_and_creates_local_config_when_missing(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             config_path = Path(temp_dir) / "config.json"
             example_path = Path(temp_dir) / "config.default.json"
@@ -75,7 +75,18 @@ class TestConfigManager(unittest.TestCase):
             self.assertEqual(config.settings["goal_mode"], "Fish Limit")
             self.assertEqual(config.settings["session_cap_min"], 0)
             self.assertEqual(config.settings["session_cap_fish"], 25)
-            self.assertFalse(config_path.exists())
+            self.assertTrue(config_path.exists())
+            self.assertEqual(json.loads(config_path.read_text(encoding="utf-8"))["settings"]["poll_interval"], 0.12)
+
+    def test_default_config_is_created_from_builtin_defaults_when_no_template_exists(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.json"
+
+            config = ConfigManager(filename=str(config_path), example_filename=str(Path(temp_dir) / "missing.json"))
+
+            self.assertTrue(config_path.exists())
+            self.assertEqual(config.settings["hook_key"], "f")
+            self.assertEqual(json.loads(config_path.read_text(encoding="utf-8"))["settings"]["hook_key"], "f")
 
     def test_save_writes_local_config_not_example_config(self):
         with tempfile.TemporaryDirectory() as temp_dir:

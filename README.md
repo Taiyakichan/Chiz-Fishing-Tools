@@ -50,7 +50,7 @@ pip install -r requirements.txt
 python start_gui.py
 ```
 
-The app starts from `config.default.json` when no local config exists. Saving settings or calibration creates `config.json`, which is gitignored by design.
+The app creates `config.json` automatically on first launch when no local config exists. `config.default.json` is kept as the public default/reset reference.
 
 ## Calibration
 

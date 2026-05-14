@@ -52,6 +52,8 @@ class ConfigManager:
         self.hsv = copy.deepcopy(self.defaults["hsv"])
         
         self.load()
+        if self._should_create_local_config():
+            self.save()
     
     def get_roi(self, name: str) -> Dict[str, Any]:
         return self.rois.get(name, {"left": 0, "top": 0, "width": 100, "height": 100})
@@ -99,6 +101,9 @@ class ConfigManager:
             return bundled_example
 
         return None
+
+    def _should_create_local_config(self) -> bool:
+        return os.path.basename(self.filename) == DEFAULT_CONFIG_FILENAME and not os.path.exists(self.filename)
 
     @property
     def has_local_config(self) -> bool:
