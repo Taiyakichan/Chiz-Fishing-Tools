@@ -55,4 +55,4 @@ IDLE -> CASTING -> WAITING -> HOOKING -> STRUGGLING -> RESULT -> IDLE
 
 ## Release Notes
 
-GitHub Actions runs tests on PRs and pushes to `main`. Windows release artifacts are built manually or from version tags such as `v1.0.0`.
+Run tests locally before release. Windows release artifacts are built manually with `build_release.bat` and uploaded to version tags such as `v1.0.0`.
