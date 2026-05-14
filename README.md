@@ -30,6 +30,8 @@ Put the `.exe` in its own folder, run it, and approve the Windows admin prompt. 
 6. Start the bot from the main controls.
 7. Stop the bot before closing the game or changing calibration.
 
+Hotkeys: press **F1** to start and **F2** to stop.
+
 If keys feel stuck, press **Release** in Settings.
 
 ## Config
