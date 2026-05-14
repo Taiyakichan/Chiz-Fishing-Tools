@@ -4,7 +4,7 @@
 
 # Chiz Fishing Tools
 
-**NTE fishing tool for Windows.**
+**Fishing tool for NTE on Windows.**
 
 </div>
 
@@ -18,11 +18,11 @@ Download `Chiz-Fishing-Tools.exe` from the latest release:
 
 [Releases](https://github.com/Taiyakichan/Chiz-Fishing-Tools/releases)
 
-Put the `.exe` in its own folder, run it, and approve the Windows admin prompt. Keep `HTGame.exe` open and visible while using the tool.
+Put the `.exe` in its own folder, run it, and approve the Windows admin prompt. Keep NTE (`HTGame.exe`) open and visible while using the tool.
 
 ## Basic Use
 
-1. Open the game and make sure the fishing UI is visible.
+1. Open NTE and make sure the fishing UI is visible.
 2. Start `Chiz-Fishing-Tools.exe`.
 3. In Settings, press **Find game**.
 4. Calibrate **Bar area**, **Notice area**, and **Button** if needed.
