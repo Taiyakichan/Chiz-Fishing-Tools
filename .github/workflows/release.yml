@@ -1,0 +1,70 @@
+name: Build Windows Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Static compile check
+        run: python -m compileall start_gui.py nte_auto_fish tests
+
+      - name: Run tests
+        run: python -m unittest discover -v
+
+      - name: Build GUI executable
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --onefile --windowed --uac-admin `
+            --name NTE-Auto-Fish `
+            --collect-data customtkinter `
+            --add-data "assets;assets" `
+            --add-data "config.default.json;." `
+            start_gui.py
+
+          if ($env:GITHUB_REF_TYPE -eq "tag") {
+            $version = $env:GITHUB_REF_NAME.TrimStart("v")
+          } else {
+            $version = "manual-$env:GITHUB_RUN_NUMBER"
+          }
+
+          $filename = "NTE-Auto-Fish-v$version-Windows-x64.exe"
+          Move-Item "dist/NTE-Auto-Fish.exe" "dist/$filename" -Force
+          "EXE_FILENAME=$filename" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NTE-Auto-Fish-Windows-x64
+          path: dist/${{ env.EXE_FILENAME }}
+
+      - name: Publish GitHub release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$env:GITHUB_REF_NAME" "dist/$env:EXE_FILENAME" `
+            --title "$env:GITHUB_REF_NAME" `
+            --generate-notes

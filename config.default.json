@@ -1,0 +1,84 @@
+{
+    "settings": {
+        "min_blue_pixels": 3500,
+        "max_struggle_secs": 60,
+        "poll_interval": 0.05,
+        "banner_threshold": 4500,
+        "recast_delay": 2.0,
+        "session_cap_min": 120,
+        "session_cap_fish": 0,
+        "goal_mode": "Time Limit",
+        "hook_key": "f",
+        "close_key": "escape"
+    },
+    "rois": {
+        "button": {
+            "left": 1700.0,
+            "top": 900.0,
+            "width": 100.0,
+            "height": 100.0
+        },
+        "bar": {
+            "left": 0.36015625,
+            "top": 0.04722222222222222,
+            "width": 0.29296875,
+            "height": 0.03981481481481482
+        },
+        "banner": {
+            "left": 0.3223958333333333,
+            "top": 0.22870370370370371,
+            "width": 0.38697916666666665,
+            "height": 0.03148148148148148
+        }
+    },
+    "hsv": {
+        "blue": {
+            "lower": [
+                100,
+                200,
+                200
+            ],
+            "upper": [
+                140,
+                255,
+                255
+            ]
+        },
+        "cursor": {
+            "lower": [
+                20,
+                100,
+                150
+            ],
+            "upper": [
+                40,
+                255,
+                255
+            ]
+        },
+        "target": {
+            "lower": [
+                65,
+                150,
+                120
+            ],
+            "upper": [
+                85,
+                255,
+                255
+            ]
+        },
+        "white": {
+            "lower": [
+                0,
+                0,
+                215
+            ],
+            "upper": [
+                180,
+                20,
+                255
+            ]
+        }
+    }
+}
