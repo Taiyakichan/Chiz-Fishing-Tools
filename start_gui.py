@@ -1,6 +1,7 @@
 import ctypes
 import sys
 import os
+import subprocess
 from nte_auto_fish.gui.controller import NteBotController
 
 
@@ -28,8 +29,10 @@ def main():
             pass
 
     if not is_admin():
-        # Re-run the program with admin rights
-        ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
+        # Re-run the active entrypoint with admin rights using properly quoted arguments.
+        entrypoint = os.path.abspath(sys.argv[0])
+        params = subprocess.list2cmdline([entrypoint, *sys.argv[1:]])
+        ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1)
         sys.exit()
 
     app = NteBotController()

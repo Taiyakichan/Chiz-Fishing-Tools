@@ -9,20 +9,23 @@
         "session_cap_fish": 0,
         "goal_mode": "Time Limit",
         "hook_key": "f",
-        "close_key": "escape"
+        "close_key": "escape",
+        "debug_struggle": false,
+        "debug_struggle_sample_interval": 0.02,
+        "debug_struggle_snapshot_interval": 0.25
     },
     "rois": {
         "button": {
-            "left": 1700.0,
-            "top": 900.0,
-            "width": 100.0,
-            "height": 100.0
+            "left": 0.89625,
+            "top": 0.8522222222222222,
+            "width": 0.05875,
+            "height": 0.09333333333333334
         },
         "bar": {
-            "left": 0.36015625,
-            "top": 0.04722222222222222,
-            "width": 0.29296875,
-            "height": 0.03981481481481482
+            "left": 0.315,
+            "top": 0.05333333333333334,
+            "width": 0.375625,
+            "height": 0.03111111111111111
         },
         "banner": {
             "left": 0.3223958333333333,

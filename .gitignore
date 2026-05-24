@@ -56,4 +56,5 @@ fishing_bot.log
 fishing_data.csv
 settings.json
 config.json
+debug/
 *.log

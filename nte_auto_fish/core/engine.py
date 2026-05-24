@@ -3,6 +3,7 @@ import time
 import threading
 import random
 import os
+import csv
 import cv2
 from typing import Optional, Any
 import win32api
@@ -11,6 +12,7 @@ import win32process
 from nte_auto_fish.core.state_machine import FishingState, FishingStateMachine
 from nte_auto_fish.core.pid_controller import PIDController
 from nte_auto_fish.config.roi import scale_roi
+from nte_auto_fish.utils.resource import app_root
 
 log = logging.getLogger("NTE.Engine")
 
@@ -21,6 +23,37 @@ NO_BAIT_TEMPLATE_THRESHOLD = 0.55
 RESULT_LOST_AFTER_SECONDS = 3.0
 BAR_APPEAR_TIMEOUT_SECONDS = 8.5
 GOLDEN_FISH_SECONDS = 11.0
+STRUGGLE_ENTER_THRESHOLD = 0.012
+STRUGGLE_RELEASE_THRESHOLD = 0.003
+STRUGGLE_VELOCITY_THRESHOLD = 0.45
+STRUGGLE_VELOCITY_CATCHUP_ERROR = 0.008
+STRUGGLE_VELOCITY_BOOST = 0.03
+STRUGGLE_MIN_TOLERANCE = 0.005
+STRUGGLE_MAX_TOLERANCE = 0.018
+STRUGGLE_TOLERANCE_RATIO = 0.12
+STRUGGLE_VELOCITY_LEAD = 0.055
+STRUGGLE_MAX_LEAD = 0.11
+STRUGGLE_STRONG_OUTPUT = 0.085
+STRUGGLE_LOOP_WAIT = 0.001
+DEBUG_STRUGGLE_ENV = "CHIZ_DEBUG_STRUGGLE"
+DEBUG_STRUGGLE_DIR = "debug"
+DEBUG_STRUGGLE_CSV = "struggle_debug.csv"
+DEBUG_STRUGGLE_COLUMNS = [
+    "timestamp",
+    "state_time",
+    "roi_width",
+    "cursor_x",
+    "target_x",
+    "cursor_width",
+    "target_width",
+    "cursor_area",
+    "target_area",
+    "target_velocity",
+    "aim_target",
+    "error",
+    "output",
+    "direction",
+]
 
 class FishingEngine:
     def __init__(self, drivers: Any, vision: Any, config: Any, bridge: Optional[Any] = None):
@@ -38,6 +71,11 @@ class FishingEngine:
         self._last_banner_pixels: int = 0
         self._last_button_pixels: int = 0
         self._last_target_pixels: int = 0
+        self._last_control_direction = 0
+        self._debug_last_sample = 0.0
+        self._debug_last_snapshot = 0.0
+        self._debug_snapshot_index = 0
+        self._debug_csv_ready = False
         
         self._running = False
         self._stop_event = threading.Event()
@@ -109,6 +147,9 @@ class FishingEngine:
 
     def _sleep_after_state(self, state: FishingState):
         interval = self._poll_interval()
+        if state == FishingState.STRUGGLING:
+            self._wait_for_stop(STRUGGLE_LOOP_WAIT)
+            return
         if state in LOW_ACTIVITY_STATES:
             self._wait_for_stop(interval + random.uniform(0, min(0.02, interval * 0.4)))
             return
@@ -124,6 +165,277 @@ class FishingEngine:
 
     def _count_pixels(self, frame, lower, upper) -> int:
         return self.vision.tracker.check_pixel_count(frame, lower, upper)
+
+    def _apply_struggle_control(self, output: float):
+        # Hysteresis keeps direction changes decisive instead of rapidly releasing around center.
+        if output <= -STRUGGLE_ENTER_THRESHOLD or (
+            self._last_control_direction < 0 and output <= -STRUGGLE_RELEASE_THRESHOLD
+        ):
+            self.drivers.input.keyDown("a")
+            self.drivers.input.keyUp("d")
+            self._last_control_direction = -1
+            return
+
+        if output >= STRUGGLE_ENTER_THRESHOLD or (
+            self._last_control_direction > 0 and output >= STRUGGLE_RELEASE_THRESHOLD
+        ):
+            self.drivers.input.keyDown("d")
+            self.drivers.input.keyUp("a")
+            self._last_control_direction = 1
+            return
+
+        self.drivers.input.keyUp("a")
+        self.drivers.input.keyUp("d")
+        self._last_control_direction = 0
+
+    def _shape_struggle_output(self, current: float, target: float, output: float) -> float:
+        # When the target reverses quickly, binary left/right control needs a stronger nudge
+        # than PID alone or it visibly lags behind the target center.
+        aim_target = self.pid.aim_target if self.pid.aim_target is not None else target
+        chase_error = aim_target - current
+        target_velocity = self.pid.target_velocity
+
+        if target_velocity >= STRUGGLE_VELOCITY_THRESHOLD and chase_error > STRUGGLE_VELOCITY_CATCHUP_ERROR:
+            return max(output, STRUGGLE_VELOCITY_BOOST + chase_error)
+
+        if target_velocity <= -STRUGGLE_VELOCITY_THRESHOLD and chase_error < -STRUGGLE_VELOCITY_CATCHUP_ERROR:
+            return min(output, -STRUGGLE_VELOCITY_BOOST + chase_error)
+
+        return output
+
+    def _compute_direct_struggle_output(
+        self,
+        current: float,
+        target: float,
+        target_velocity: float,
+        target_width: float,
+    ) -> float:
+        lead = max(-STRUGGLE_MAX_LEAD, min(STRUGGLE_MAX_LEAD, target_velocity * STRUGGLE_VELOCITY_LEAD))
+        aim_target = max(0.0, min(1.0, target + lead))
+        error = aim_target - current
+
+        tolerance = max(
+            STRUGGLE_MIN_TOLERANCE,
+            min(STRUGGLE_MAX_TOLERANCE, target_width * STRUGGLE_TOLERANCE_RATIO),
+        )
+
+        if error > tolerance:
+            return max(STRUGGLE_STRONG_OUTPUT, error)
+        if error < -tolerance:
+            return min(-STRUGGLE_STRONG_OUTPUT, error)
+
+        # Stay biased toward the moving center instead of idling on the target edge.
+        if target_velocity > 0.08:
+            return STRUGGLE_RELEASE_THRESHOLD
+        if target_velocity < -0.08:
+            return -STRUGGLE_RELEASE_THRESHOLD
+        return 0.0
+
+    def _debug_struggle_enabled(self) -> bool:
+        env_value = os.environ.get(DEBUG_STRUGGLE_ENV, "").strip().lower()
+        if env_value in ("1", "true", "yes", "on"):
+            return True
+        if env_value in ("0", "false", "no", "off"):
+            return False
+        try:
+            return bool(self.config.settings.get("debug_struggle", False))
+        except AttributeError:
+            return False
+
+    def _debug_interval(self, key: str, default: float) -> float:
+        try:
+            return max(0.001, float(self.config.settings.get(key, default)))
+        except (TypeError, ValueError, AttributeError):
+            return default
+
+    def _debug_dir(self) -> str:
+        return os.path.join(app_root(), DEBUG_STRUGGLE_DIR)
+
+    def _ensure_struggle_debug_csv(self) -> str:
+        debug_dir = self._debug_dir()
+        os.makedirs(debug_dir, exist_ok=True)
+        csv_path = os.path.join(debug_dir, DEBUG_STRUGGLE_CSV)
+        if not self._debug_csv_ready:
+            with open(csv_path, "w", encoding="utf-8", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(DEBUG_STRUGGLE_COLUMNS)
+            self._debug_csv_ready = True
+        return csv_path
+
+    def _record_struggle_debug(
+        self,
+        frame,
+        roi_width: int,
+        current: float,
+        target: float,
+        cursor_width: float,
+        target_width: float,
+        cursor_area: int,
+        target_area: int,
+        output: float,
+    ):
+        if not self._debug_struggle_enabled():
+            return
+
+        now = time.time()
+        sample_interval = self._debug_interval("debug_struggle_sample_interval", 0.02)
+        snapshot_interval = self._debug_interval("debug_struggle_snapshot_interval", 0.25)
+        target_velocity = self.pid.target_velocity
+        aim_target = self.pid.aim_target if self.pid.aim_target is not None else target
+        error = aim_target - current
+
+        try:
+            if now - self._debug_last_sample >= sample_interval:
+                csv_path = self._ensure_struggle_debug_csv()
+                with open(csv_path, "a", encoding="utf-8", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow([
+                        f"{now:.6f}",
+                        f"{self.sm.time_in_state:.6f}",
+                        int(roi_width),
+                        f"{current:.6f}",
+                        f"{target:.6f}",
+                        f"{cursor_width:.6f}",
+                        f"{target_width:.6f}",
+                        int(cursor_area),
+                        int(target_area),
+                        f"{target_velocity:.6f}",
+                        f"{aim_target:.6f}",
+                        f"{error:.6f}",
+                        f"{output:.6f}",
+                        int(self._last_control_direction),
+                    ])
+                self._debug_last_sample = now
+
+            if now - self._debug_last_snapshot >= snapshot_interval:
+                self._write_struggle_snapshot(
+                    frame,
+                    current,
+                    target,
+                    cursor_width,
+                    target_width,
+                    aim_target,
+                    output,
+                )
+                self._debug_last_snapshot = now
+        except Exception as e:
+            log.debug(f"Struggle debug write failed: {e}")
+
+    def _record_struggle_missing(
+        self,
+        frame,
+        roi_width: int,
+        cursor_area: int,
+        target_area: int,
+    ):
+        if not self._debug_struggle_enabled():
+            return
+
+        now = time.time()
+        sample_interval = self._debug_interval("debug_struggle_sample_interval", 0.02)
+        snapshot_interval = self._debug_interval("debug_struggle_snapshot_interval", 0.25)
+
+        try:
+            if now - self._debug_last_sample >= sample_interval:
+                csv_path = self._ensure_struggle_debug_csv()
+                with open(csv_path, "a", encoding="utf-8", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow([
+                        f"{now:.6f}",
+                        f"{self.sm.time_in_state:.6f}",
+                        int(roi_width),
+                        "",
+                        "",
+                        "",
+                        "",
+                        int(cursor_area),
+                        int(target_area),
+                        "",
+                        "",
+                        "",
+                        "",
+                        int(self._last_control_direction),
+                    ])
+                self._debug_last_sample = now
+
+            if now - self._debug_last_snapshot >= snapshot_interval:
+                marked = frame.copy()
+                h, _ = marked.shape[:2]
+                cv2.putText(
+                    marked,
+                    f"missing detection cur_area={cursor_area} tgt_area={target_area}",
+                    (6, max(14, min(h - 4, 18))),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.45,
+                    (255, 255, 255),
+                    1,
+                    cv2.LINE_AA,
+                )
+                self._debug_snapshot_index += 1
+                path = os.path.join(self._debug_dir(), f"struggle_{self._debug_snapshot_index:05d}.png")
+                os.makedirs(self._debug_dir(), exist_ok=True)
+                cv2.imwrite(path, marked)
+                self._debug_last_snapshot = now
+        except Exception as e:
+            log.debug(f"Struggle missing-debug write failed: {e}")
+
+    def _write_struggle_snapshot(
+        self,
+        frame,
+        current: float,
+        target: float,
+        cursor_width: float,
+        target_width: float,
+        aim_target: float,
+        output: float,
+    ):
+        debug_dir = self._debug_dir()
+        os.makedirs(debug_dir, exist_ok=True)
+        marked = frame.copy()
+        h, w = marked.shape[:2]
+        if w <= 0 or h <= 0:
+            return
+
+        def x_px(value: float) -> int:
+            return max(0, min(w - 1, int(round(value * w))))
+
+        target_center = x_px(target)
+        cursor_center = x_px(current)
+        aim_center = x_px(aim_target)
+        target_half_width = max(1, int(round(target_width * w / 2)))
+        cursor_half_width = max(1, int(round(cursor_width * w / 2)))
+
+        cv2.rectangle(
+            marked,
+            (max(0, target_center - target_half_width), 0),
+            (min(w - 1, target_center + target_half_width), h - 1),
+            (60, 180, 60),
+            1,
+        )
+        cv2.rectangle(
+            marked,
+            (max(0, cursor_center - cursor_half_width), 0),
+            (min(w - 1, cursor_center + cursor_half_width), h - 1),
+            (0, 220, 255),
+            1,
+        )
+        cv2.line(marked, (target_center, 0), (target_center, h - 1), (0, 255, 0), 1)
+        cv2.line(marked, (cursor_center, 0), (cursor_center, h - 1), (0, 255, 255), 2)
+        cv2.line(marked, (aim_center, 0), (aim_center, h - 1), (255, 0, 255), 1)
+        cv2.putText(
+            marked,
+            f"out={output:.3f} dir={self._last_control_direction}",
+            (6, max(14, min(h - 4, 18))),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            (255, 255, 255),
+            1,
+            cv2.LINE_AA,
+        )
+
+        self._debug_snapshot_index += 1
+        path = os.path.join(debug_dir, f"struggle_{self._debug_snapshot_index:05d}.png")
+        cv2.imwrite(path, marked)
 
     def _push_status(self):
         if not self.bridge: return
@@ -276,10 +588,10 @@ class FishingEngine:
         bar_roi = self._get_roi_abs("bar")
         frame = self.drivers.capture.grab(bar_roi)
         
-        cur_x, cur_area = self.vision.tracker.find_centroid_x(
+        cur_x, cur_area, cur_width = self.vision.tracker.find_horizontal_span(
             frame, self.config.hsv_cursor_lower, self.config.hsv_cursor_upper
         )
-        tgt_x, tgt_area = self.vision.tracker.find_centroid_x(
+        tgt_x, tgt_area, tgt_width = self.vision.tracker.find_horizontal_span(
             frame, self.config.hsv_target_lower, self.config.hsv_target_upper
         )
         
@@ -288,26 +600,37 @@ class FishingEngine:
             w = bar_roi["width"]
             norm_cur = cur_x / w
             norm_tgt = tgt_x / w
+            norm_tgt_width = tgt_width / w if w else 0.0
             self._last_cur_norm = norm_cur
             self._last_tgt_norm = norm_tgt
-            
-            output = self.pid.update(norm_cur, norm_tgt)
+
+            self.pid.update(norm_cur, norm_tgt)
+            output = self._compute_direct_struggle_output(
+                norm_cur,
+                norm_tgt,
+                self.pid.target_velocity,
+                norm_tgt_width,
+            )
             self._last_pid_power = output
-            
-            if output < -0.05:
-                self.drivers.input.keyDown("a")
-                self.drivers.input.keyUp("d")
-            elif output > 0.05:
-                self.drivers.input.keyDown("d")
-                self.drivers.input.keyUp("a")
-            else:
-                self.drivers.input.keyUp("a")
-                self.drivers.input.keyUp("d")
+            self._apply_struggle_control(output)
+            self._record_struggle_debug(
+                frame,
+                w,
+                norm_cur,
+                norm_tgt,
+                cur_width / w if w else 0.0,
+                norm_tgt_width,
+                cur_area,
+                tgt_area,
+                output,
+            )
         else:
             self.drivers.input.keyUp("a")
             self.drivers.input.keyUp("d")
+            self._last_control_direction = 0
             self._last_cur_norm = None
             self._last_tgt_norm = None
+            self._record_struggle_missing(frame, bar_roi["width"], cur_area, tgt_area)
             
             has_seen_bar = hasattr(self, "_last_bar_time") and self._last_bar_time > getattr(self.sm, "_last_transition", 0)
             

@@ -35,6 +35,9 @@ class TestConfigManager(unittest.TestCase):
                             "banner_threshold": "500",
                             "hook_key": "e",
                             "recast_delay": -1,
+                            "debug_struggle": "true",
+                            "debug_struggle_sample_interval": "0.03",
+                            "debug_struggle_snapshot_interval": "0.4",
                         },
                         "hsv": {"blue": {"lower": [101, 201, 202], "upper": [999, 0, 0]}},
                     }
@@ -48,6 +51,9 @@ class TestConfigManager(unittest.TestCase):
         self.assertEqual(config.settings["banner_threshold"], 500)
         self.assertEqual(config.settings["hook_key"], "e")
         self.assertEqual(config.settings["recast_delay"], 2.0)
+        self.assertTrue(config.settings["debug_struggle"])
+        self.assertEqual(config.settings["debug_struggle_sample_interval"], 0.03)
+        self.assertEqual(config.settings["debug_struggle_snapshot_interval"], 0.4)
         self.assertEqual(config.hsv_blue_lower, (101, 201, 202))
         self.assertEqual(config.hsv_blue_upper, (130, 255, 255))
 

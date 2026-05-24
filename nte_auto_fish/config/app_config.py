@@ -30,6 +30,9 @@ class ConfigManager:
             "goal_mode": "Time Limit",
             "hook_key": "f",
             "close_key": "escape",
+            "debug_struggle": False,
+            "debug_struggle_sample_interval": 0.02,
+            "debug_struggle_snapshot_interval": 0.25,
             },
             "rois": {
                 "button": {"left": 1680, "top": 890, "width": 120, "height": 110},
@@ -120,6 +123,8 @@ class ConfigManager:
             "poll_interval": float,
             "banner_threshold": int,
             "recast_delay": float,
+            "debug_struggle_sample_interval": float,
+            "debug_struggle_snapshot_interval": float,
         }
         for key, caster in numeric_fields.items():
             if key in raw:
@@ -147,7 +152,22 @@ class ConfigManager:
         goal_mode = raw.get("goal_mode")
         if goal_mode in ("Time Limit", "Fish Limit"):
             settings["goal_mode"] = goal_mode
+
+        debug_struggle = self._parse_bool(raw.get("debug_struggle"))
+        if debug_struggle is not None:
+            settings["debug_struggle"] = debug_struggle
         return settings
+
+    def _parse_bool(self, value: Any) -> bool | None:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in ("1", "true", "yes", "on"):
+                return True
+            if normalized in ("0", "false", "no", "off"):
+                return False
+        return None
 
     def _merge_rois(self, raw: Any) -> Dict[str, Dict[str, Any]]:
         rois = copy.deepcopy(self.defaults["rois"])

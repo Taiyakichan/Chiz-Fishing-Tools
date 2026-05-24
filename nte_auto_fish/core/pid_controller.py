@@ -2,16 +2,20 @@ import time
 from typing import Optional
 
 class PIDController:
-    """Advanced PID controller with velocity feedforward and edge aggression."""
+    """Adaptive PID controller with prediction for moving minigame targets."""
     
     def __init__(
         self,
-        kp: float = 0.5,
-        ki: float = 0.05,
-        kd: float = 0.1,
-        ff_weight: float = 0.15,
+        kp: float = 0.9,
+        ki: float = 0.08,
+        kd: float = 0.16,
+        ff_weight: float = 0.22,
         integral_limit: float = 1.0,
-        deadband: float = 0.01
+        deadband: float = 0.004,
+        prediction_horizon: float = 0.045,
+        max_prediction: float = 0.08,
+        snap_gain: float = 0.65,
+        snap_error: float = 0.04,
     ):
         self.kp = kp
         self.ki = ki
@@ -19,6 +23,10 @@ class PIDController:
         self.ff_weight = ff_weight
         self.integral_limit = integral_limit
         self.deadband = deadband
+        self.prediction_horizon = prediction_horizon
+        self.max_prediction = max_prediction
+        self.snap_gain = snap_gain
+        self.snap_error = snap_error
         
         self.reset()
 
@@ -28,6 +36,18 @@ class PIDController:
         self._last_time: Optional[float] = None
         self._last_target: Optional[float] = None
         self._target_velocity = 0.0
+        self._last_aim_target: Optional[float] = None
+
+    def _clamp_unit(self, value: float) -> float:
+        return max(0.0, min(1.0, value))
+
+    @property
+    def target_velocity(self) -> float:
+        return self._target_velocity
+
+    @property
+    def aim_target(self) -> Optional[float]:
+        return self._last_aim_target
 
     def update(self, current: float, target: float, bar_width: float = 1.0) -> float:
         """
@@ -53,11 +73,30 @@ class PIDController:
         # --- Velocity Estimation (Feedforward) ---
         if self._last_target is not None:
             raw_vel = (target - self._last_target) / dt
-            # Simple alpha smoothing for velocity
-            self._target_velocity = self._target_velocity * 0.7 + raw_vel * 0.3
+            reversed_direction = (
+                abs(raw_vel) > 0.02
+                and abs(self._target_velocity) > 0.02
+                and raw_vel * self._target_velocity < 0
+            )
+            if reversed_direction:
+                self._integral = 0.0
+                self._prev_error = 0.0
+                self._target_velocity = raw_vel
+            else:
+                # Faster smoothing helps the cursor react earlier to quick target moves.
+                self._target_velocity = self._target_velocity * 0.4 + raw_vel * 0.6
         self._last_target = target
+
+        prediction = self._target_velocity * self.prediction_horizon
+        prediction = max(-self.max_prediction, min(self.max_prediction, prediction))
+        aim_target = self._clamp_unit(target + prediction)
+        self._last_aim_target = aim_target
         
         # --- PID Terms ---
+        error = aim_target - current
+        if abs(error) < self.deadband and abs(self._target_velocity) < 0.015:
+            error = 0.0
+
         p_term = self.kp * error
         
         self._integral += error * dt
@@ -78,6 +117,9 @@ class PIDController:
         if dist_to_edge < edge_threshold:
             # Linear increase up to 1.5x gain at the very edge
             edge_multiplier = 1.5 - (dist_to_edge / edge_threshold) * 0.5
-            
+
+        if abs(error) > self.snap_error:
+            edge_multiplier += self.snap_gain
+
         output = (p_term + i_term + d_term + ff_term) * edge_multiplier
         return output

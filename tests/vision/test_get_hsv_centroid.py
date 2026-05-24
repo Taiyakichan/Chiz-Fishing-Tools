@@ -32,6 +32,19 @@ class TestHSVCentroid(unittest.TestCase):
                 else:
                     self.assertIsNone(result)
 
+    def assert_span_cases(self, folder, lower, upper, expected):
+        for image_path in sorted((self.data_dir / folder).glob("*.png")):
+            with self.subTest(image=image_path.name):
+                result, area, width = self.tracker.find_horizontal_span(
+                    self.load_image(image_path), lower, upper, min_area=80.0
+                )
+                if expected:
+                    self.assertIsNotNone(result)
+                    self.assertGreater(area, 0.0)
+                    self.assertGreater(width, 0.0)
+                else:
+                    self.assertIsNone(result)
+
     def test_get_bar_positive_cases(self):
         self.assert_centroid_cases(
             "hsv_centroid_bar_positive",
@@ -62,6 +75,14 @@ class TestHSVCentroid(unittest.TestCase):
             self.config.hsv_cursor_lower,
             self.config.hsv_cursor_upper,
             False,
+        )
+
+    def test_get_bar_span_positive_cases(self):
+        self.assert_span_cases(
+            "hsv_centroid_bar_positive",
+            self.config.hsv_target_lower,
+            self.config.hsv_target_upper,
+            True,
         )
 
 

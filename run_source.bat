@@ -3,23 +3,16 @@ setlocal
 
 cd /d "%~dp0"
 
-set "APP_EXE=dist\Chiz-Fishing-Tools.exe"
 set "PYTHON_EXE=python"
 if exist ".venv\Scripts\python.exe" (
     set "PYTHON_EXE=.venv\Scripts\python.exe"
 )
 
-if exist "%APP_EXE%" (
-    echo Starting Chiz Fishing Tools...
-    start "" "%APP_EXE%"
-    exit /b 0
-)
-
 where "%PYTHON_EXE%" >nul 2>&1
 if errorlevel 1 (
     echo.
-    echo Python was not found, and no built executable is available.
-    echo Build the app or install Python first.
+    echo Python was not found.
+    echo Install Python or create a .venv first.
     pause
     exit /b 1
 )
@@ -29,6 +22,6 @@ echo Starting Chiz Fishing Tools from source...
 
 if errorlevel 1 (
     echo.
-    echo The app exited with an error. Check the message above.
+    echo The source app exited with an error. Check the message above.
     pause
 )
